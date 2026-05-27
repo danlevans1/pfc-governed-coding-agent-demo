@@ -3,6 +3,10 @@
 > **Advisory / simulation-only.**  This repository never executes shell
 > commands, pushes to Git, deploys, calls the network, accesses credentials,
 > or grants execution authority.  PFC is the execution boundary.
+>
+> See [SECURITY.md](SECURITY.md) for the full safety-boundary reference,
+> including the known limitation that the regex deny-list is a demo guard,
+> not an OS-level sandbox.
 
 ---
 
@@ -79,19 +83,20 @@ pfc-governed-coding-agent-demo/
 │   ├── __init__.py
 │   ├── governance_decision.py              # DENY / ALLOW / REQUIRE_HUMAN_APPROVAL tokens
 │   ├── governance_hashing.py               # deterministic SHA-256 receipt hashing
-│   ├── governed_coding_agent_intent.py     # Layer 1 — intent adapter
+│   ├── governed_coding_agent_intent.py     # Layer 1 — intent adapter + freshness constants
 │   ├── governed_coding_agent_preflight.py  # Layer 2 — preflight wrapper
-│   └── governed_coding_agent_preflight_replay.py  # Layer 3 — replay verifier
+│   └── governed_coding_agent_preflight_replay.py  # Layer 3 — replay verifier (expiry check)
 ├── examples/
 │   └── governed_coding_agent_demo.py       # end-to-end demo script (3 scenarios)
 ├── tests/
-│   └── test_governed_coding_agent_demo.py  # 46 tests (all pass)
+│   └── test_governed_coding_agent_demo.py  # tests (all pass); includes freshness suite
 ├── public_demo/
 │   └── governed_coding_agent/
 │       ├── README.md                       # chain overview + ASCII flow diagram
 │       ├── demo_flow.md                    # annotated scenario walkthroughs
 │       ├── sample_receipts.md              # live JSON receipt output
 │       └── safety_boundaries.md            # comprehensive safety reference
+├── SECURITY.md                             # safety-boundary reference + known limitations
 ├── LICENSE                                 # MIT
 ├── requirements.txt                        # pytest only
 └── README.md                              # this file
@@ -159,6 +164,13 @@ These flags appear on **every** receipt — regardless of decision outcome:
 Decision tokens (`INTENT_ADVISORY_ACCEPTED`, `PREFLIGHT_ADVISORY_ACCEPTED`,
 `REPLAY_VERIFIED`) are **advisory governance evidence only**.  None of them
 activate, permit, or cause the execution of any action.
+
+### Receipt freshness
+
+Every receipt also carries `issued_at`, `expires_at`, and `ttl_seconds`
+(fixed deterministic demo timestamps, covered by the receipt hash).  The
+replay verifier accepts a `check_at` parameter and returns `DENY /
+RECEIPT_EXPIRED` when the receipt has passed its expiry window.
 
 ---
 

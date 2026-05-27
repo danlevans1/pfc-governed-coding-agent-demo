@@ -64,6 +64,20 @@ _FORBIDDEN_PATH_PATTERNS: list[re.Pattern[str]] = [
     re.compile(r"(^|[/\\])\.(github|gitlab|circleci)([\\/]|\Z)", re.IGNORECASE),
 ]
 
+# ── deterministic demo freshness constants ─────────────────────────────────
+# All timestamps are fixed so receipts and tests remain fully deterministic.
+# They demonstrate the freshness-verification pattern; they are not real-time
+# access-control values.  See SECURITY.md for the known-limitation notice.
+#
+#   DEMO_ISSUED_AT   – the moment the demo receipt is "issued"
+#   DEMO_TTL_SECONDS – how many seconds the receipt is considered fresh
+#   DEMO_EXPIRES_AT  – DEMO_ISSUED_AT + DEMO_TTL_SECONDS  (01:00 UTC)
+#   DEMO_CHECK_AT    – canonical demo "now"; 30 min after issuance, within TTL
+DEMO_ISSUED_AT:   str = "2026-05-26T00:00:00Z"
+DEMO_TTL_SECONDS: int = 3600
+DEMO_EXPIRES_AT:  str = "2026-05-26T01:00:00Z"
+DEMO_CHECK_AT:    str = "2026-05-26T00:30:00Z"  # within TTL; used as default check time
+
 # ── structural invariant flags ─────────────────────────────────────────────
 # These flags appear verbatim on every receipt regardless of decision outcome.
 INTENT_FLAGS: dict[str, bool] = {
@@ -238,6 +252,10 @@ def generate_intent_receipt(
         "scope": intent.get("scope"),
         "risk_level": intent.get("risk_level"),
         "human_review_required": intent.get("human_review_required"),
+        # freshness – fixed demo constants; covered by receipt_hash
+        "issued_at":   DEMO_ISSUED_AT,
+        "expires_at":  DEMO_EXPIRES_AT,
+        "ttl_seconds": DEMO_TTL_SECONDS,
         # governance outcome
         "decision": decision,
         "checks": checks,

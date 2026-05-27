@@ -36,6 +36,9 @@ from src.governance_decision import DENY
 from src.governance_hashing import deterministic_hash
 from src.governed_coding_agent_intent import (
     INTENT_ADVISORY_ACCEPTED,
+    DEMO_ISSUED_AT,
+    DEMO_TTL_SECONDS,
+    DEMO_EXPIRES_AT,
     _path_safe,                     # reuse identical path predicate
     evaluate_coding_agent_intent,
     validate_coding_agent_intent,
@@ -299,6 +302,10 @@ def generate_preflight_receipt(
         "proposed_command": proposed_command,
         "command_type": command_type,
         "target_paths": target_paths or [],
+        # freshness – fixed demo constants; covered by receipt_hash
+        "issued_at":   DEMO_ISSUED_AT,
+        "expires_at":  DEMO_EXPIRES_AT,
+        "ttl_seconds": DEMO_TTL_SECONDS,
         # governance outcome
         "decision": decision,
         "checks": checks,

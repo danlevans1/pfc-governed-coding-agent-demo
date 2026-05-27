@@ -39,6 +39,7 @@ from typing import Any
 
 from src.governance_decision import DENY
 from src.governance_hashing import deterministic_hash
+from src.governed_coding_agent_intent import DEMO_CHECK_AT
 from src.governed_coding_agent_preflight import (
     PREFLIGHT_FLAGS,
     evaluate_coding_agent_preflight,
@@ -113,6 +114,8 @@ def verify_preflight_replay(
     parent_intent_receipt: dict[str, Any],
     preflight_request: dict[str, Any],
     stored_preflight_receipt: Any,
+    *,
+    check_at: str = DEMO_CHECK_AT,
 ) -> dict[str, Any]:
     """
     Verify that a stored preflight receipt is consistent with a fresh replay.
@@ -134,11 +137,17 @@ def verify_preflight_replay(
           - prev_preflight_receipt_hash  (str | None, optional)
     stored_preflight_receipt:
         The previously emitted preflight receipt dict to verify.
+    check_at:
+        ISO-8601 UTC timestamp string used to evaluate receipt freshness.
+        Defaults to ``DEMO_CHECK_AT`` (a fixed demo constant within the demo
+        TTL window) so that all default-path tests remain deterministic.
+        Pass an explicit value to test expiry behaviour.
 
     Returns
     -------
     A replay verification receipt dict.  Key fields:
-        decision     – REPLAY_VERIFIED or DENY
+        decision      – REPLAY_VERIFIED or DENY
+        check_at      – the freshness-check timestamp used in this evaluation
         replay_checks – per-check boolean results
         reason_codes  – sorted list of denial reason-code strings
         receipt_hash  – SHA-256 hash covering all other fields in this receipt
@@ -159,11 +168,17 @@ def verify_preflight_replay(
     # Guard: if stored receipt is missing/malformed, skip field comparisons.
     stored: dict[str, Any] = stored_preflight_receipt if isinstance(stored_preflight_receipt, dict) else {}
 
+    # Freshness check: the stored receipt's expires_at must be strictly later
+    # than check_at.  ISO-8601 UTC strings compare lexicographically correctly.
+    _expires_at = stored.get("expires_at", "")
+    _receipt_not_expired = bool(_expires_at) and _expires_at > check_at
+
     pre_checks: dict[str, bool] = {
         "stored_receipt_present": stored_present,
         "stored_command_executed_false": stored.get("command_executed") is False,
         "stored_command_permitted_false": stored.get("command_permitted") is False,
         "stored_real_authority_granted_false": stored.get("real_authority_granted") is False,
+        "receipt_not_expired": _receipt_not_expired,
     }
 
     # ── phase 2: replay ──────────────────────────────────────────────────────
@@ -201,6 +216,8 @@ def verify_preflight_replay(
         reason_codes.append("STORED_RECEIPT_CLAIMS_COMMAND_PERMITTED")
     if not replay_checks["stored_real_authority_granted_false"]:
         reason_codes.append("STORED_RECEIPT_CLAIMS_REAL_AUTHORITY_GRANTED")
+    if not replay_checks["receipt_not_expired"]:
+        reason_codes.append("RECEIPT_EXPIRED")
     if not replay_checks["field_decision_matches"]:
         reason_codes.append("DECISION_MISMATCH")
     if not replay_checks["field_reason_codes_matches"]:
@@ -231,6 +248,8 @@ def verify_preflight_replay(
         "preflight_id": preflight_id,
         "stored_receipt_hash": stored.get("receipt_hash"),
         "recomputed_receipt_hash": recomputed.get("receipt_hash"),
+        # check_at is recorded for audit trail; included in receipt_hash
+        "check_at": check_at,
         "decision": decision,
         "replay_checks": replay_checks,
         "reason_codes": sorted(reason_codes),

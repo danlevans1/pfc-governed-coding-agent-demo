@@ -10,15 +10,28 @@ Proves that:
   - all returned receipts preserve no-execution / no-authority invariants
   - run_demo() runs without error in both normal and quiet modes
   - the 'ok' boolean on each scenario is True
+  - receipts include issued_at / expires_at / ttl_seconds freshness fields
+  - a valid non-expired receipt still verifies as REPLAY_VERIFIED
+  - an expired receipt returns DENY with RECEIPT_EXPIRED
+  - no execution/authority flags are ever True
 """
 
 import importlib
 
 import pytest
 
-from src.governed_coding_agent_intent import INTENT_ADVISORY_ACCEPTED
+from src.governed_coding_agent_intent import (
+    INTENT_ADVISORY_ACCEPTED,
+    DEMO_ISSUED_AT,
+    DEMO_TTL_SECONDS,
+    DEMO_EXPIRES_AT,
+    DEMO_CHECK_AT,
+)
 from src.governed_coding_agent_preflight import PREFLIGHT_ADVISORY_ACCEPTED
-from src.governed_coding_agent_preflight_replay import REPLAY_VERIFIED
+from src.governed_coding_agent_preflight_replay import (
+    REPLAY_VERIFIED,
+    verify_preflight_replay,
+)
 from src.governance_decision import DENY
 
 # Import the demo module
@@ -299,3 +312,208 @@ class TestCheckNoExecutionInvariantsHelper:
     def test_all_invariants_hold_false_for_dirty_dict(self):
         dirty = {"command_executed": True}
         assert all_invariants_hold(dirty) is False
+
+
+# ── 7. Receipt freshness fields and expiry verification ───────────────────
+
+# Fixed check times used only in this class, relative to DEMO_EXPIRES_AT
+# ("2026-05-26T01:00:00Z"):
+#   _CHECK_WITHIN_TTL  — 30 min after issuance; well within window
+#   _CHECK_AFTER_EXPIRY — 1 hr past expiry; clearly expired
+_CHECK_WITHIN_TTL   = DEMO_CHECK_AT         # "2026-05-26T00:30:00Z"
+_CHECK_AFTER_EXPIRY = "2026-05-26T02:00:00Z"
+
+
+class TestReceiptFreshness:
+    """
+    Proves:
+      - intent and preflight receipts carry issued_at / expires_at / ttl_seconds
+      - freshness field values match the expected demo constants
+      - a valid, non-expired receipt verifies as REPLAY_VERIFIED
+      - an expired receipt is denied with RECEIPT_EXPIRED
+      - no execution / authority flags are ever True on any receipt
+    """
+
+    def setup_method(self):
+        self.a = scenario_a()
+        self.intent_receipt    = self.a["intent_receipt"]
+        self.preflight_receipt = self.a["preflight_receipt"]
+        self.intent            = self.a["intent"]
+        self.intent_receipt_   = self.a["intent_receipt"]
+        self.preflight_request = self.a["preflight_request"]
+
+    # ── freshness fields present ─────────────────────────────────────────────
+
+    def test_intent_receipt_has_issued_at(self):
+        assert "issued_at" in self.intent_receipt
+
+    def test_intent_receipt_has_expires_at(self):
+        assert "expires_at" in self.intent_receipt
+
+    def test_intent_receipt_has_ttl_seconds(self):
+        assert "ttl_seconds" in self.intent_receipt
+
+    def test_preflight_receipt_has_issued_at(self):
+        assert "issued_at" in self.preflight_receipt
+
+    def test_preflight_receipt_has_expires_at(self):
+        assert "expires_at" in self.preflight_receipt
+
+    def test_preflight_receipt_has_ttl_seconds(self):
+        assert "ttl_seconds" in self.preflight_receipt
+
+    # ── freshness field values match demo constants ──────────────────────────
+
+    def test_intent_receipt_issued_at_value(self):
+        assert self.intent_receipt["issued_at"] == DEMO_ISSUED_AT
+
+    def test_intent_receipt_expires_at_value(self):
+        assert self.intent_receipt["expires_at"] == DEMO_EXPIRES_AT
+
+    def test_intent_receipt_ttl_seconds_value(self):
+        assert self.intent_receipt["ttl_seconds"] == DEMO_TTL_SECONDS
+
+    def test_preflight_receipt_issued_at_value(self):
+        assert self.preflight_receipt["issued_at"] == DEMO_ISSUED_AT
+
+    def test_preflight_receipt_expires_at_value(self):
+        assert self.preflight_receipt["expires_at"] == DEMO_EXPIRES_AT
+
+    def test_preflight_receipt_ttl_seconds_value(self):
+        assert self.preflight_receipt["ttl_seconds"] == DEMO_TTL_SECONDS
+
+    # ── demo check_at is within TTL (sanity) ────────────────────────────────
+
+    def test_demo_check_at_is_before_expires_at(self):
+        """DEMO_CHECK_AT must be within the TTL window for the happy path."""
+        assert DEMO_CHECK_AT < DEMO_EXPIRES_AT
+
+    def test_demo_check_at_is_after_issued_at(self):
+        assert DEMO_ISSUED_AT < DEMO_CHECK_AT
+
+    # ── valid non-expired receipt verifies ───────────────────────────────────
+
+    def test_valid_non_expired_receipt_verifies(self):
+        """Replay verification with check_at within the TTL returns REPLAY_VERIFIED."""
+        replay = verify_preflight_replay(
+            coding_agent_intent=self.intent,
+            parent_intent_receipt=self.intent_receipt_,
+            preflight_request=self.preflight_request,
+            stored_preflight_receipt=self.preflight_receipt,
+            check_at=_CHECK_WITHIN_TTL,
+        )
+        assert replay["decision"] == REPLAY_VERIFIED
+
+    def test_valid_receipt_has_no_receipt_expired_code(self):
+        replay = verify_preflight_replay(
+            coding_agent_intent=self.intent,
+            parent_intent_receipt=self.intent_receipt_,
+            preflight_request=self.preflight_request,
+            stored_preflight_receipt=self.preflight_receipt,
+            check_at=_CHECK_WITHIN_TTL,
+        )
+        assert "RECEIPT_EXPIRED" not in replay["reason_codes"]
+
+    def test_valid_receipt_not_expired_check_is_true(self):
+        replay = verify_preflight_replay(
+            coding_agent_intent=self.intent,
+            parent_intent_receipt=self.intent_receipt_,
+            preflight_request=self.preflight_request,
+            stored_preflight_receipt=self.preflight_receipt,
+            check_at=_CHECK_WITHIN_TTL,
+        )
+        assert replay["replay_checks"]["receipt_not_expired"] is True
+
+    # ── expired receipt returns DENY ─────────────────────────────────────────
+
+    def test_expired_receipt_returns_deny(self):
+        """Replay verification with check_at after expires_at returns DENY."""
+        replay = verify_preflight_replay(
+            coding_agent_intent=self.intent,
+            parent_intent_receipt=self.intent_receipt_,
+            preflight_request=self.preflight_request,
+            stored_preflight_receipt=self.preflight_receipt,
+            check_at=_CHECK_AFTER_EXPIRY,
+        )
+        assert replay["decision"] == DENY
+
+    def test_expired_receipt_has_receipt_expired_reason_code(self):
+        replay = verify_preflight_replay(
+            coding_agent_intent=self.intent,
+            parent_intent_receipt=self.intent_receipt_,
+            preflight_request=self.preflight_request,
+            stored_preflight_receipt=self.preflight_receipt,
+            check_at=_CHECK_AFTER_EXPIRY,
+        )
+        assert "RECEIPT_EXPIRED" in replay["reason_codes"]
+
+    def test_expired_receipt_not_expired_check_is_false(self):
+        replay = verify_preflight_replay(
+            coding_agent_intent=self.intent,
+            parent_intent_receipt=self.intent_receipt_,
+            preflight_request=self.preflight_request,
+            stored_preflight_receipt=self.preflight_receipt,
+            check_at=_CHECK_AFTER_EXPIRY,
+        )
+        assert replay["replay_checks"]["receipt_not_expired"] is False
+
+    # ── check_at recorded in replay receipt ──────────────────────────────────
+
+    def test_replay_receipt_records_check_at(self):
+        replay = verify_preflight_replay(
+            coding_agent_intent=self.intent,
+            parent_intent_receipt=self.intent_receipt_,
+            preflight_request=self.preflight_request,
+            stored_preflight_receipt=self.preflight_receipt,
+            check_at=_CHECK_WITHIN_TTL,
+        )
+        assert replay["check_at"] == _CHECK_WITHIN_TTL
+
+    # ── no execution/authority flags ever True ───────────────────────────────
+
+    def test_no_execution_flags_false_on_intent_receipt(self):
+        _assert_no_execution(self.intent_receipt, "intent-freshness")
+
+    def test_no_execution_flags_false_on_preflight_receipt(self):
+        _assert_no_execution(self.preflight_receipt, "preflight-freshness")
+
+    def test_no_execution_flags_false_on_valid_replay(self):
+        replay = verify_preflight_replay(
+            coding_agent_intent=self.intent,
+            parent_intent_receipt=self.intent_receipt_,
+            preflight_request=self.preflight_request,
+            stored_preflight_receipt=self.preflight_receipt,
+            check_at=_CHECK_WITHIN_TTL,
+        )
+        _assert_no_execution(replay, "replay-valid")
+
+    def test_no_execution_flags_false_on_expired_deny(self):
+        """Even an expired DENY replay preserves all no-execution invariants."""
+        replay = verify_preflight_replay(
+            coding_agent_intent=self.intent,
+            parent_intent_receipt=self.intent_receipt_,
+            preflight_request=self.preflight_request,
+            stored_preflight_receipt=self.preflight_receipt,
+            check_at=_CHECK_AFTER_EXPIRY,
+        )
+        _assert_no_execution(replay, "replay-expired")
+
+    def test_real_authority_granted_false_on_expired_deny(self):
+        replay = verify_preflight_replay(
+            coding_agent_intent=self.intent,
+            parent_intent_receipt=self.intent_receipt_,
+            preflight_request=self.preflight_request,
+            stored_preflight_receipt=self.preflight_receipt,
+            check_at=_CHECK_AFTER_EXPIRY,
+        )
+        assert replay["real_authority_granted"] is False
+
+    def test_command_executed_false_on_expired_deny(self):
+        replay = verify_preflight_replay(
+            coding_agent_intent=self.intent,
+            parent_intent_receipt=self.intent_receipt_,
+            preflight_request=self.preflight_request,
+            stored_preflight_receipt=self.preflight_receipt,
+            check_at=_CHECK_AFTER_EXPIRY,
+        )
+        assert replay["command_executed"] is False
