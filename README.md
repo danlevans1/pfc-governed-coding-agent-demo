@@ -172,6 +172,8 @@ Every receipt also carries `issued_at`, `expires_at`, and `ttl_seconds`
 replay verifier accepts a `check_at` parameter and returns `DENY /
 RECEIPT_EXPIRED` when the receipt has passed its expiry window.
 
+Freshness timestamps are deterministic demo constants for reproducibility and are not production-grade time attestations.
+
 ---
 
 ## Further reading
