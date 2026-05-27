@@ -10,6 +10,16 @@
 
 ---
 
+## Architecture & Threat Model
+
+| Document | Contents |
+|---|---|
+| [ARCHITECTURE.md](ARCHITECTURE.md) | Layer-by-layer design, design principles, replay verification rationale, deny-list limitations, productionization requirements |
+| [THREAT_MODEL.md](THREAT_MODEL.md) | Threat scope, demonstrated mitigations, out-of-scope threats, security assumptions, known limitations |
+| [SECURITY.md](SECURITY.md) | Safety-boundary quick-reference, structural invariant table, known limitation notice |
+
+---
+
 ## What this is
 
 A standalone, public-safe demonstration of the **PFC governed coding-agent
@@ -96,6 +106,8 @@ pfc-governed-coding-agent-demo/
 │       ├── demo_flow.md                    # annotated scenario walkthroughs
 │       ├── sample_receipts.md              # live JSON receipt output
 │       └── safety_boundaries.md            # comprehensive safety reference
+├── ARCHITECTURE.md                         # layer design, principles, productionization
+├── THREAT_MODEL.md                         # threat scope, mitigations, assumptions
 ├── SECURITY.md                             # safety-boundary reference + known limitations
 ├── LICENSE                                 # MIT
 ├── requirements.txt                        # pytest only
